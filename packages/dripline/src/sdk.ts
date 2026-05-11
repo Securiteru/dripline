@@ -1,4 +1,4 @@
-import { Database } from "./core/db.js";
+import { Database, type DatabaseOptions } from "./core/db.js";
 import type { DriplineConfig } from "./config/types.js";
 import { DEFAULT_CONFIG } from "./config/types.js";
 import { QueryCache } from "./core/cache.js";
@@ -31,6 +31,8 @@ export interface DriplineOptions {
   database?: Database;
   /** Schema to namespace tables under. Required when database is provided. */
   schema?: string;
+  /** DuckDB options for Dripline's owned in-memory query database. */
+  databaseOptions?: DatabaseOptions;
 }
 
 export class Dripline {
@@ -78,6 +80,7 @@ export class Dripline {
     await this._engine.initialize(config, {
       database: this.options.database,
       schema: this.options.schema,
+      databaseOptions: this.options.databaseOptions,
     });
   }
 
@@ -108,7 +111,9 @@ export class Dripline {
       lanes: {},
     };
     this._engine = new QueryEngine(this.registry, this.cache, this.rateLimiter);
-    await this._engine.initialize(config);
+    await this._engine.initialize(config, {
+      databaseOptions: this.options.databaseOptions,
+    });
   }
 
   /** Get cache statistics. */

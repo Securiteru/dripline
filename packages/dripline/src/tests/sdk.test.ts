@@ -157,6 +157,38 @@ describe("Dripline SDK", () => {
     assert.equal(rows[0].v, 2);
   });
 
+  it("applies databaseOptions to the owned query database", async () => {
+    dl = await Dripline.create({
+      databaseOptions: {
+        threads: 1,
+        memoryLimit: "256MB",
+        tempDirectory: "/tmp/dripline-sdk-spill",
+        preserveInsertionOrder: false,
+        objectCache: true,
+      },
+    });
+    const rows = await dl.query<{
+      mem: string;
+      t: string;
+      tmp: string;
+      pio: string;
+      obj: string;
+    }>(`
+      SELECT
+        current_setting('memory_limit') AS mem,
+        current_setting('threads') AS t,
+        current_setting('temp_directory') AS tmp,
+        current_setting('preserve_insertion_order') AS pio,
+        current_setting('enable_object_cache') AS obj
+    `);
+
+    assert.match(rows[0].mem, /244|256/);
+    assert.equal(Number(rows[0].t), 1);
+    assert.equal(rows[0].tmp, "/tmp/dripline-sdk-spill");
+    assert.equal(rows[0].pio, false);
+    assert.equal(rows[0].obj, true);
+  });
+
   it("close prevents further queries", async () => {
     const localDl = await Dripline.create({ plugins: [mockPlugin] });
     await localDl.close();

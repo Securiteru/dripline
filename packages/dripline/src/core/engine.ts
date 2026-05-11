@@ -9,7 +9,7 @@ import type {
   TableDef,
 } from "../plugin/types.js";
 import { QueryCache } from "./cache.js";
-import { type Appender, Database } from "./db.js";
+import { type Appender, Database, type DatabaseOptions } from "./db.js";
 import { RateLimiter } from "./rate-limiter.js";
 
 interface RegisteredTable {
@@ -67,6 +67,8 @@ export interface EngineOptions {
   database?: Database;
   /** Schema to namespace all tables under. Required when database is provided. */
   schema?: string;
+  /** DuckDB options for the engine-owned in-memory database. Ignored when database is provided. */
+  databaseOptions?: DatabaseOptions;
 }
 
 export class QueryEngine {
@@ -110,7 +112,7 @@ export class QueryEngine {
       this.dbSchema = options.schema;
       await this.db.exec(`CREATE SCHEMA IF NOT EXISTS "${options.schema}"`);
     } else {
-      this.db = await Database.create(":memory:");
+      this.db = await Database.create(":memory:", options?.databaseOptions);
       this.dbSchema = options?.schema;
     }
 
