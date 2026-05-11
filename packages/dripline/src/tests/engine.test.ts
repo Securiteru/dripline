@@ -313,6 +313,44 @@ describe("QueryEngine", () => {
     assert.equal(ctx.ordersCtx.quals.find((q: any) => q.column === "business_date")?.value, "2026-04-03");
   });
 
+  it("extracts IN quals from windowed CTE scans", async () => {
+    const ctx = { ordersCtx: null as QueryContext | null, itemsCtx: null as QueryContext | null };
+    await setup({ plugins: [makeShopPlugin(ctx)] });
+    await engine.query(`
+      WITH dedup AS (
+        SELECT
+          business_date,
+          org_id,
+          id,
+          status,
+          ROW_NUMBER() OVER (
+            PARTITION BY org_id, id, business_date
+            ORDER BY id DESC
+          ) AS rn
+        FROM shop_orders
+        WHERE business_date IN ('2026-04-03', '2026-04-02')
+          AND org_id IN ('org1', 'org2')
+          AND status IN ('closed', 'open')
+      )
+      SELECT business_date, org_id, COUNT(*) AS orders
+      FROM dedup
+      WHERE rn = 1
+      GROUP BY business_date, org_id
+    `);
+
+    assert.ok(ctx.ordersCtx);
+    const businessDateQual = ctx.ordersCtx.quals.find((q: any) => q.column === "business_date");
+    const orgQual = ctx.ordersCtx.quals.find((q: any) => q.column === "org_id");
+    const statusQual = ctx.ordersCtx.quals.find((q: any) => q.column === "status");
+
+    assert.equal(businessDateQual?.operator, "IN");
+    assert.deepEqual(businessDateQual?.value, ["2026-04-03", "2026-04-02"]);
+    assert.equal(orgQual?.operator, "IN");
+    assert.deepEqual(orgQual?.value, ["org1", "org2"]);
+    assert.equal(statusQual?.operator, "IN");
+    assert.deepEqual(statusQual?.value, ["closed", "open"]);
+  });
+
   it("extracts quals from EXISTS subquery", async () => {
     const ctx = { ordersCtx: null as QueryContext | null, itemsCtx: null as QueryContext | null };
     await setup({ plugins: [makeShopPlugin(ctx)] });
@@ -828,6 +866,94 @@ describe("QueryEngine", () => {
     await engine.query("SELECT * FROM users");
     await engine.query("SELECT * FROM users");
     assert.equal(listCalls, 2);
+  });
+
+  it("source-backed tables query directly through DuckDB views", async () => {
+    let listCalled = false;
+    let setupCalled = false;
+    await setup({
+      plugins: [
+        {
+          name: "source",
+          version: "1.0.0",
+          tables: [
+            {
+              name: "source_orders",
+              columns: [
+                { name: "id", type: "number" },
+                { name: "org_id", type: "string" },
+                { name: "status", type: "string" },
+                { name: "amount", type: "number" },
+              ],
+              keyColumns: [{ name: "org_id", required: "optional" }],
+              source: {
+                type: "duckdb",
+                async setup(ctx) {
+                  setupCalled = true;
+                  await ctx.db.run(`
+                    CREATE TABLE source_seed AS
+                    SELECT * FROM (VALUES
+                      (1, 'org1', 'closed', 10),
+                      (2, 'org1', 'open', 20),
+                      (3, 'org2', 'closed', 30)
+                    ) AS t(id, org_id, status, amount)
+                  `);
+                },
+                sql: "SELECT * FROM source_seed",
+              },
+              *list() {
+                listCalled = true;
+                yield { id: 999, org_id: "bad", status: "bad", amount: 999 };
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const rows = await engine.query(`
+      WITH dedup AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY org_id ORDER BY amount DESC) AS rn
+        FROM source_orders
+        WHERE org_id IN ('org1', 'org2') AND status = 'closed'
+      )
+      SELECT org_id, SUM(amount) AS total
+      FROM dedup
+      WHERE rn = 1
+      GROUP BY org_id
+      ORDER BY org_id
+    `);
+
+    assert.equal(setupCalled, true);
+    assert.equal(listCalled, false);
+    assert.deepEqual(rows, [
+      { org_id: "org1", total: 10 },
+      { org_id: "org2", total: 30 },
+    ]);
+  });
+
+  it("source-backed tables require no list function", async () => {
+    await setup({
+      plugins: [
+        {
+          name: "source_no_list",
+          version: "1.0.0",
+          tables: [
+            {
+              name: "source_no_list_items",
+              columns: [{ name: "id", type: "number" }],
+              source: {
+                type: "duckdb",
+                sql: "SELECT 1 AS id UNION ALL SELECT 2 AS id",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const rows = await engine.query("SELECT SUM(id) AS total FROM source_no_list_items");
+    assert.deepEqual(rows, [{ total: 3 }]);
   });
 
   it("query-mode materialization ingests plugin rows in bounded batches", async () => {

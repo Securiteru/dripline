@@ -73,12 +73,15 @@ export type {
   GetFunc,
   HydrateFunc,
   KeyColumn,
+  DuckDBSourceContext,
+  DuckDBSourceDef,
   ListFunc,
   PluginDef,
   Qual,
   QueryContext,
   RateLimitConfig,
   TableDef,
+  TableSourceDef,
 } from "./plugin/types.js";
 export type { DriplineOptions } from "./sdk.js";
 export { Dripline } from "./sdk.js";

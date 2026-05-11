@@ -1,3 +1,6 @@
+import type { DriplineConfig } from "../config/types.js";
+import type { Database } from "../core/db.js";
+
 export type ColumnType = "string" | "number" | "boolean" | "json" | "datetime";
 
 export interface ColumnDef {
@@ -72,6 +75,23 @@ export type HydrateFunc = (
   row: Record<string, any>,
 ) => Record<string, any>;
 
+export interface DuckDBSourceContext {
+  db: Database;
+  config: DriplineConfig;
+  table: TableDef;
+  schema?: string;
+}
+
+export interface DuckDBSourceDef {
+  type: "duckdb";
+  /** Optional setup hook for extensions, secrets, attached databases, etc. */
+  setup?: (ctx: DuckDBSourceContext) => void | Promise<void>;
+  /** SELECT SQL used as the body of the backing view. */
+  sql: string | ((ctx: DuckDBSourceContext) => string | Promise<string>);
+}
+
+export type TableSourceDef = DuckDBSourceDef;
+
 export interface TableDef {
   name: string;
   columns: ColumnDef[];
@@ -101,7 +121,8 @@ export interface TableDef {
    * `ctx.cursor` is null (typically "all history").
    */
   initialCursor?: unknown | ((params: Record<string, any>) => unknown);
-  list: ListFunc;
+  list?: ListFunc;
+  source?: TableSourceDef;
   get?: GetFunc;
   hydrate?: Record<string, HydrateFunc>;
   description?: string;

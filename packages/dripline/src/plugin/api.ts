@@ -6,6 +6,7 @@ import type {
   ListFunc,
   PluginDef,
   TableDef,
+  TableSourceDef,
 } from "./types.js";
 
 export interface SchemaField {
@@ -25,7 +26,8 @@ export interface TableDefinition {
   syncParams?: Record<string, any>;
   /** Column name used as high-water mark for incremental sync. Type inferred from columns[]. */
   cursor?: string;
-  list: ListFunc;
+  list?: ListFunc;
+  source?: TableSourceDef;
   get?: GetFunc;
   hydrate?: Record<string, HydrateFunc>;
   description?: string;

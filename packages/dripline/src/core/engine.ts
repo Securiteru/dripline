@@ -128,6 +128,7 @@ export class QueryEngine {
         table,
         connections,
         pluginDef?.connectionConfigSchema,
+        config,
       );
     }
   }
@@ -137,20 +138,43 @@ export class QueryEngine {
     table: TableDef,
     connections: ConnectionConfig[],
     schema?: Record<string, { env?: string }>,
+    config?: DriplineConfig,
   ): Promise<void> {
+    if (!table.list && !table.source) {
+      throw new Error(
+        `Table "${table.name}" must define either list(ctx) or source`,
+      );
+    }
+
     const keyColNames = (table.keyColumns ?? []).map((k) => k.name);
     const allColumns = [...table.columns.map((c) => c.name), ...keyColNames];
     const uniqueColumns = [...new Set(allColumns)];
 
-    const colDefs = uniqueColumns.map((name) => {
-      const col = table.columns.find((c) => c.name === name);
-      const duckType = col ? toDuckType(col.type) : "VARCHAR";
-      return `"${name}" ${duckType}`;
-    });
+    if (table.source) {
+      if (table.source.type !== "duckdb") {
+        throw new Error(`Unsupported table source type: ${table.source.type}`);
+      }
+      if (!config) throw new Error("Missing Dripline config for table source");
+      const ctx = { db: this.db, config, table, schema: this.dbSchema };
+      await table.source.setup?.(ctx);
+      const sourceSql =
+        typeof table.source.sql === "function"
+          ? await table.source.sql(ctx)
+          : table.source.sql;
+      await this.db.run(
+        `CREATE OR REPLACE VIEW ${this.qualifiedName(table.name)} AS ${sourceSql}`,
+      );
+    } else {
+      const colDefs = uniqueColumns.map((name) => {
+        const col = table.columns.find((c) => c.name === name);
+        const duckType = col ? toDuckType(col.type) : "VARCHAR";
+        return `"${name}" ${duckType}`;
+      });
 
-    await this.db.run(
-      `CREATE TABLE IF NOT EXISTS ${this.qualifiedName(table.name)} (${colDefs.join(", ")})`,
-    );
+      await this.db.run(
+        `CREATE TABLE IF NOT EXISTS ${this.qualifiedName(table.name)} (${colDefs.join(", ")})`,
+      );
+    }
 
     this.tables.set(table.name, {
       pluginName,
@@ -356,9 +380,10 @@ export class QueryEngine {
     reg: RegisteredTable,
     quals: Qual[],
   ): Promise<void> {
-    // External DB mode: query() reads what's there, sync() writes.
-    // No ephemeral materialization — the caller manages freshness.
-    if (!this.ownsDb) return;
+    // External DB mode and source-backed tables already expose a DuckDB
+    // relation. query() should run the original SQL directly against it
+    // instead of asking a plugin iterator to materialize rows.
+    if (!this.ownsDb || reg.table.source) return;
 
     const { table, pluginName } = reg;
     const visibleColumns = table.columns.map((c) => c.name);
@@ -442,6 +467,9 @@ export class QueryEngine {
             }
           }
           if (!usedGet) {
+            if (!table.list) {
+              throw new Error(`Table "${table.name}" does not define list(ctx)`);
+            }
             for await (const row of table.list(ctx)) {
               await stageRow(hydrateRow(row, ctx));
             }
@@ -999,6 +1027,12 @@ export class QueryEngine {
       rowsInserted += batch.length;
       batch = [];
     };
+
+    if (!table.list) {
+      throw new Error(
+        `sync() for source-backed table "${table.name}" is not implemented yet`,
+      );
+    }
 
     this.rateLimiter.acquireSync(pluginName);
     try {
