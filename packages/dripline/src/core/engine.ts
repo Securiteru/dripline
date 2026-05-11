@@ -362,71 +362,117 @@ export class QueryEngine {
 
     const { table, pluginName } = reg;
     const visibleColumns = table.columns.map((c) => c.name);
+    const qn = this.qualifiedName(table.name);
 
     const cacheKey = this.cache.getCacheKey(table.name, quals, visibleColumns);
     const cached = this.cache.get<Record<string, any>>(cacheKey);
 
-    let rows: Record<string, any>[];
+    // Keep query-mode materialization bounded like sync(): plugin rows
+    // flow into DuckDB in chunks instead of accumulating in JS memory.
+    // The cache remains useful for small API tables, but large pulls are
+    // intentionally not cached because that would recreate the same
+    // unbounded row-array problem on the next query.
+    const BATCH_SIZE = 10_000;
+    const CACHE_ROW_LIMIT = 10_000;
+    const stage = `_dripline_stage_${table.name}`;
+    let batch: Record<string, any>[] = [];
+    let cacheRows: Record<string, any>[] | null = cached ? null : [];
 
-    if (cached) {
-      rows = cached;
-    } else {
-      const connection = this.resolveConnection(reg);
-      const ctx: QueryContext = {
-        connection,
-        quals,
-        columns: visibleColumns,
-        fetch: connection.fetch ?? globalThis.fetch,
-      };
-
-      this.rateLimiter.acquireSync(pluginName);
-
-      rows = [];
-      const allKeyColumns = table.keyColumns ?? [];
-      const allKeysProvided =
-        allKeyColumns.length > 0 &&
-        allKeyColumns.every((k) =>
-          quals.some((q) => q.column === k.name && q.operator === "="),
-        );
-
-      let usedGet = false;
-      if (table.get && allKeysProvided) {
-        const result = table.get(ctx);
-        if (result) {
-          rows = [result];
-          usedGet = true;
+    const flushSql = (buf: string) =>
+      `INSERT INTO "${stage}" SELECT * FROM ${buf}`;
+    const flushBatch = async () => {
+      if (batch.length === 0) return;
+      await this.ingestRows(reg, table, batch, quals, flushSql);
+      batch = [];
+    };
+    const hydrateRow = (row: Record<string, any>, ctx: QueryContext) => {
+      if (!table.hydrate) return row;
+      let out = row;
+      for (const [colName, hydrateFn] of Object.entries(table.hydrate)) {
+        if (visibleColumns.includes(colName)) {
+          out = { ...out, ...hydrateFn(ctx, out) };
         }
       }
-      if (!usedGet) {
-        for await (const row of table.list(ctx)) {
-          rows.push(row);
+      return out;
+    };
+    const stageRow = async (row: Record<string, any>) => {
+      batch.push(row);
+      if (cacheRows) {
+        if (cacheRows.length < CACHE_ROW_LIMIT) {
+          cacheRows.push(row);
+        } else {
+          cacheRows = null;
         }
       }
+      if (batch.length >= BATCH_SIZE) await flushBatch();
+    };
 
-      if (table.hydrate) {
-        for (let i = 0; i < rows.length; i++) {
-          for (const [colName, hydrateFn] of Object.entries(table.hydrate)) {
-            if (visibleColumns.includes(colName)) {
-              const extra = hydrateFn(ctx, rows[i]);
-              rows[i] = { ...rows[i], ...extra };
+    await this.db.exec(`DROP TABLE IF EXISTS "${stage}";`);
+    await this.db.exec(
+      `CREATE TEMP TABLE "${stage}" AS SELECT * FROM ${qn} WHERE 1=0;`,
+    );
+
+    try {
+      if (cached) {
+        for (const row of cached) await stageRow(row);
+      } else {
+        const connection = this.resolveConnection(reg);
+        const ctx: QueryContext = {
+          connection,
+          quals,
+          columns: visibleColumns,
+          fetch: connection.fetch ?? globalThis.fetch,
+        };
+
+        const allKeyColumns = table.keyColumns ?? [];
+        const allKeysProvided =
+          allKeyColumns.length > 0 &&
+          allKeyColumns.every((k) =>
+            quals.some((q) => q.column === k.name && q.operator === "="),
+          );
+
+        this.rateLimiter.acquireSync(pluginName);
+        try {
+          let usedGet = false;
+          if (table.get && allKeysProvided) {
+            const result = table.get(ctx);
+            if (result) {
+              await stageRow(hydrateRow(result, ctx));
+              usedGet = true;
             }
           }
+          if (!usedGet) {
+            for await (const row of table.list(ctx)) {
+              await stageRow(hydrateRow(row, ctx));
+            }
+          }
+        } finally {
+          this.rateLimiter.release(pluginName);
         }
+
       }
 
-      this.cache.set(cacheKey, rows);
-      this.rateLimiter.release(pluginName);
-    }
+      await flushBatch();
 
-    const qn = this.qualifiedName(table.name);
-    await this.db.run(`DELETE FROM ${qn}`);
-    await this.ingestRows(
-      reg,
-      table,
-      rows,
-      quals,
-      (buf) => `INSERT INTO ${qn} SELECT * FROM ${buf}`,
-    );
+      // Preserve old failure semantics: a plugin/list/hydrate failure
+      // must not leave the query table half-replaced. We fully populate
+      // the temp stage first, then swap it into the real table in one
+      // transaction.
+      await this.db.run("BEGIN TRANSACTION");
+      try {
+        await this.db.run(`DELETE FROM ${qn}`);
+        await this.db.run(`INSERT INTO ${qn} SELECT * FROM "${stage}"`);
+        await this.db.run("COMMIT");
+        if (cacheRows) this.cache.set(cacheKey, cacheRows);
+      } catch (err) {
+        try {
+          await this.db.run("ROLLBACK");
+        } catch {}
+        throw err;
+      }
+    } finally {
+      await this.db.exec(`DROP TABLE IF EXISTS "${stage}";`);
+    }
   }
 
   async query(sql: string, params?: any[]): Promise<any[]> {

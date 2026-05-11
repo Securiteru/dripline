@@ -830,6 +830,116 @@ describe("QueryEngine", () => {
     assert.equal(listCalls, 2);
   });
 
+  it("query-mode materialization ingests plugin rows in bounded batches", async () => {
+    let calls = 0;
+    const plugin: PluginDef = {
+      name: "large",
+      version: "1.0.0",
+      tables: [
+        {
+          name: "large_items",
+          columns: [{ name: "id", type: "number" }],
+          *list() {
+            calls++;
+            for (let i = 0; i < 25_000; i++) yield { id: i };
+          },
+        },
+      ],
+    };
+
+    await setup({ plugins: [plugin] });
+
+    const batchSizes: number[] = [];
+    const engineInternals = engine as unknown as {
+      ingestRows: (
+        reg: unknown,
+        table: unknown,
+        rows: Record<string, unknown>[],
+        quals: unknown,
+        sql: unknown,
+      ) => Promise<void>;
+    };
+    const originalIngestRows = engineInternals.ingestRows.bind(engine);
+    engineInternals.ingestRows = async (reg, table, rows, quals, sql) => {
+      batchSizes.push(rows.length);
+      return originalIngestRows(reg, table, rows, quals, sql);
+    };
+
+    const rows = await engine.query<{ n: number; max_id: number }>(
+      "SELECT COUNT(*) AS n, MAX(id) AS max_id FROM large_items",
+    );
+
+    assert.equal(calls, 1);
+    assert.equal(Number(rows[0].n), 25_000);
+    assert.equal(rows[0].max_id, 24_999);
+    assert.deepEqual(batchSizes, [10_000, 10_000, 5_000]);
+    assert.ok(batchSizes.every((n) => n <= 10_000));
+  });
+
+  it("query-mode materialization does not cache large row sets", async () => {
+    let calls = 0;
+    const plugin: PluginDef = {
+      name: "large_uncached",
+      version: "1.0.0",
+      tables: [
+        {
+          name: "large_uncached_items",
+          columns: [{ name: "id", type: "number" }],
+          *list() {
+            calls++;
+            for (let i = 0; i < 10_001; i++) yield { id: i };
+          },
+        },
+      ],
+    };
+
+    await setup({ plugins: [plugin] });
+    await engine.query("SELECT COUNT(*) AS n FROM large_uncached_items");
+    await engine.query("SELECT COUNT(*) AS n FROM large_uncached_items");
+
+    assert.equal(calls, 2);
+    assert.equal(cache.stats().hits, 0);
+  });
+
+  it("failed streaming materialization leaves the previous table contents intact", async () => {
+    let mode: "ok" | "fail" = "ok";
+    const plugin: PluginDef = {
+      name: "unstable",
+      version: "1.0.0",
+      tables: [
+        {
+          name: "unstable_items",
+          columns: [
+            { name: "id", type: "number" },
+            { name: "label", type: "string" },
+          ],
+          *list() {
+            if (mode === "ok") {
+              yield { id: 1, label: "stable" };
+              return;
+            }
+            yield { id: 2, label: "partial" };
+            throw new Error("boom during materialization");
+          },
+        },
+      ],
+    };
+
+    await setup({ cacheEnabled: false, plugins: [plugin] });
+    await engine.query("SELECT * FROM unstable_items");
+
+    mode = "fail";
+    await assert.rejects(
+      () => engine.query("SELECT * FROM unstable_items"),
+      /boom during materialization/,
+    );
+
+    const rows = await engine
+      .getDatabase()
+      .all('SELECT * FROM "unstable_items" ORDER BY id');
+    assert.deepEqual(rows, [{ id: 1, label: "stable" }]);
+  });
+
   it("get path used when all key columns have quals and get returns non-null", async () => {
     await setup({
       plugins: [
