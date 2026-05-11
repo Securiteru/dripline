@@ -79,6 +79,8 @@ export class QueryEngine {
   private cache: QueryCache;
   private rateLimiter: RateLimiter;
   private tables: Map<string, RegisteredTable> = new Map();
+  private config!: DriplineConfig;
+  private sourceViewsReady = new Set<string>();
 
   constructor(
     registry: PluginRegistry,
@@ -101,6 +103,8 @@ export class QueryEngine {
     config: DriplineConfig,
     options?: EngineOptions,
   ): Promise<void> {
+    this.config = config;
+
     if (options?.database) {
       if (!options.schema) {
         throw new Error(
@@ -128,7 +132,6 @@ export class QueryEngine {
         table,
         connections,
         pluginDef?.connectionConfigSchema,
-        config,
       );
     }
   }
@@ -138,7 +141,6 @@ export class QueryEngine {
     table: TableDef,
     connections: ConnectionConfig[],
     schema?: Record<string, { env?: string }>,
-    config?: DriplineConfig,
   ): Promise<void> {
     if (!table.list && !table.source) {
       throw new Error(
@@ -154,16 +156,6 @@ export class QueryEngine {
       if (table.source.type !== "duckdb") {
         throw new Error(`Unsupported table source type: ${table.source.type}`);
       }
-      if (!config) throw new Error("Missing Dripline config for table source");
-      const ctx = { db: this.db, config, table, schema: this.dbSchema };
-      await table.source.setup?.(ctx);
-      const sourceSql =
-        typeof table.source.sql === "function"
-          ? await table.source.sql(ctx)
-          : table.source.sql;
-      await this.db.run(
-        `CREATE OR REPLACE VIEW ${this.qualifiedName(table.name)} AS ${sourceSql}`,
-      );
     } else {
       const colDefs = uniqueColumns.map((name) => {
         const col = table.columns.find((c) => c.name === name);
@@ -376,6 +368,21 @@ export class QueryEngine {
     }
   }
 
+  private async ensureSourceView(reg: RegisteredTable): Promise<void> {
+    const { table } = reg;
+    if (!table.source || this.sourceViewsReady.has(table.name)) return;
+    const ctx = { db: this.db, config: this.config, table, schema: this.dbSchema };
+    await table.source.setup?.(ctx);
+    const sourceSql =
+      typeof table.source.sql === "function"
+        ? await table.source.sql(ctx)
+        : table.source.sql;
+    await this.db.run(
+      `CREATE OR REPLACE VIEW ${this.qualifiedName(table.name)} AS ${sourceSql}`,
+    );
+    this.sourceViewsReady.add(table.name);
+  }
+
   private async populateTable(
     reg: RegisteredTable,
     quals: Qual[],
@@ -383,7 +390,11 @@ export class QueryEngine {
     // External DB mode and source-backed tables already expose a DuckDB
     // relation. query() should run the original SQL directly against it
     // instead of asking a plugin iterator to materialize rows.
-    if (!this.ownsDb || reg.table.source) return;
+    if (reg.table.source) {
+      await this.ensureSourceView(reg);
+      return;
+    }
+    if (!this.ownsDb) return;
 
     const { table, pluginName } = reg;
     const visibleColumns = table.columns.map((c) => c.name);

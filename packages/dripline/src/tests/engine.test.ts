@@ -932,6 +932,38 @@ describe("QueryEngine", () => {
     ]);
   });
 
+  it("source-backed tables are attached lazily when referenced", async () => {
+    await setup({
+      plugins: [
+        {
+          name: "lazy_source",
+          version: "1.0.0",
+          tables: [
+            {
+              name: "usable_source_items",
+              columns: [{ name: "id", type: "number" }],
+              source: {
+                type: "duckdb",
+                sql: "SELECT 1 AS id",
+              },
+            },
+            {
+              name: "broken_unreferenced_source_items",
+              columns: [{ name: "id", type: "number" }],
+              source: {
+                type: "duckdb",
+                sql: "SELECT * FROM missing_unreferenced_relation",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const rows = await engine.query("SELECT * FROM usable_source_items");
+    assert.deepEqual(rows, [{ id: 1 }]);
+  });
+
   it("source-backed tables require no list function", async () => {
     await setup({
       plugins: [
