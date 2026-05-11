@@ -1,11 +1,24 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { createJiti } from "jiti";
 import { findConfigDir } from "../config/loader.js";
 import { resolvePluginExport } from "./api.js";
 import { registry } from "./registry.js";
 import type { PluginDef } from "./types.js";
+
+const jiti = createJiti(import.meta.url, {
+  moduleCache: false,
+  interopDefault: true,
+  tryNative: false,
+  alias: {
+    dripline: new URL("../index.js", import.meta.url).pathname,
+    "dripline/utils/http": new URL("../utils/http.js", import.meta.url)
+      .pathname,
+    "dripline/utils/cli": new URL("../utils/cli.js", import.meta.url)
+      .pathname,
+  },
+});
 
 export async function loadPluginFromPath(path: string): Promise<PluginDef> {
   let absPath = resolve(path);
@@ -36,9 +49,13 @@ export async function loadPluginFromPath(path: string): Promise<PluginDef> {
     }
   }
 
-  const mod = await import(pathToFileURL(absPath).href);
+  // Plugins are often stored outside the project/package tree (for
+  // example in workspace directories). Load them through Dripline's
+  // module context so documented imports like `from "dripline"` work
+  // without requiring a node_modules folder next to the plugin file.
+  const mod = await jiti.import(absPath);
   const pluginId = absPath.replace(/.*\//, "").replace(/\.(ts|js)$/, "");
-  return resolvePluginExport(mod.default, pluginId);
+  return resolvePluginExport((mod as any).default ?? mod, pluginId);
 }
 
 async function loadFromDirectory(dir: string): Promise<PluginDef[]> {
