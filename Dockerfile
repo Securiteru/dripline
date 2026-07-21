@@ -6,6 +6,11 @@
 
 FROM oven/bun:1 AS build
 
+# bun image lacks git; install it so we can clone the runline fork
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 
 # Copy the dripline monorepo (build context = this fork root)
