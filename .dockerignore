@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/.dripline/plugins/git
+docs
+*.md
+!README.md
+bun.lock
+.vscode
+.idea
+.DS_Store

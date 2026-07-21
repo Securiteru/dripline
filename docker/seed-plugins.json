@@ -1,0 +1,18 @@
+{
+  "plugins": [
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/brew", "name": "brew"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/docker", "name": "docker"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/ps", "name": "ps"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/git", "name": "git"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/npm", "name": "npm"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/github", "name": "github"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/linear", "name": "linear"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/sentry", "name": "sentry"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/vercel", "name": "vercel"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/cloudflare", "name": "cloudflare"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/stripe", "name": "stripe"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/terraform", "name": "terraform"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/grafana", "name": "grafana"},
+    {"source": "git:github.com/Securiteru/dripline#packages/plugins/openai", "name": "openai"}
+  ]
+}

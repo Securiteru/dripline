@@ -1,0 +1,20 @@
+{
+  "connections": [
+    {"name": "github", "plugin": "github", "config": {}},
+    {"name": "linear", "plugin": "linear", "config": {}},
+    {"name": "sentry", "plugin": "sentry", "config": {}},
+    {"name": "vercel", "plugin": "vercel", "config": {}},
+    {"name": "cloudflare", "plugin": "cloudflare", "config": {}},
+    {"name": "stripe", "plugin": "stripe", "config": {}},
+    {"name": "terraform", "plugin": "terraform", "config": {}},
+    {"name": "grafana", "plugin": "grafana", "config": {}},
+    {"name": "openai", "plugin": "openai", "config": {}}
+  ],
+  "cache": {
+    "enabled": true,
+    "ttl": 300000,
+    "maxSize": 1000
+  },
+  "rateLimits": {},
+  "lanes": {}
+}
