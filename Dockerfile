@@ -37,6 +37,9 @@ RUN bun install --production --frozen-lockfile
 # --- Runtime stage ---
 FROM oven/bun:1 AS runtime
 
+# oven/bun:1 runs as non-root `bun` user by default; switch to root for system setup
+USER root
+
 # bun ships in the base image; add node for runline (its CLI shebang is #!/usr/bin/env node)
 # tini for PID 1 signal handling
 RUN apt-get update \
