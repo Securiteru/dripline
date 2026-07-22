@@ -1,11 +1,13 @@
 {
-  "healthcheck": {
-    "web": {
-      "type": "tcp",
-      "port": 3457,
-      "attempts": 3,
-      "timeout": 2,
-      "wait": 1
-    }
+  "healthchecks": {
+    "web": [
+      {
+        "type": "tcp",
+        "port": 3457,
+        "attempts": 3,
+        "timeout": 2,
+        "wait": 1
+      }
+    ]
   }
 }
