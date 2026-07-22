@@ -42,6 +42,9 @@ RUN bun install --production --frozen-lockfile
 # --- Runtime stage ---
 FROM oven/bun:1 AS runtime
 
+# app.json healthcheck (baked into image for Dokku git:from-image)
+COPY app.json /app.json
+
 # oven/bun:1 runs as non-root `bun` user by default; switch to root for system setup
 USER root
 
