@@ -26,11 +26,20 @@ export function generateSql(graph: QueryGraph): string {
     tableByNodeId.set(t.nodeId, t);
   }
 
-  // SELECT — only selected columns, alias-prefixed. Fall back to *.
+  // SELECT — only selected columns, alias-prefixed. Deduplicate names with AS.
   const selectCols: string[] = [];
+  const usedNames = new Set<string>();
   for (const t of tables) {
     for (const c of t.columns) {
-      if (c.selected) selectCols.push(`${t.alias}.${c.name}`);
+      if (c.selected) {
+        const qualified = `${t.alias}.${c.name}`;
+        if (usedNames.has(c.name)) {
+          selectCols.push(`${qualified} AS ${t.alias}_${c.name}`);
+        } else {
+          selectCols.push(qualified);
+          usedNames.add(c.name);
+        }
+      }
     }
   }
   const selectClause = selectCols.length > 0 ? selectCols.join(", ") : "*";

@@ -9,14 +9,18 @@ import type { TableNodeData } from "./types";
 
 export type TableFlowNode = Node<TableNodeData, "table">;
 
-/**
- * Lets a TableNode report column checkbox toggles back to the Canvas
- * without the parent having to thread callbacks through node `data`.
- * The Canvas provides the value; the node supplies its own id + name.
- */
 export const ColumnToggleContext = createContext<
   ((nodeId: string, columnName: string) => void) | null
 >(null);
+
+const handleStyle: React.CSSProperties = {
+  width: 16,
+  height: 16,
+  background: "var(--accent)",
+  border: "2px solid var(--bg)",
+  borderRadius: "50%",
+  zIndex: 100,
+};
 
 export const TableNode = memo(function TableNode({
   id,
@@ -30,11 +34,11 @@ export const TableNode = memo(function TableNode({
   return (
     <div
       className={cn(
-        "w-[240px] overflow-hidden rounded-md border bg-[var(--panel)] text-[var(--text)] shadow-lg",
+        "w-[240px] rounded-md border bg-[var(--panel)] text-[var(--text)] shadow-lg",
         selected ? "border-[var(--accent)]" : "border-[var(--border-muted)]",
       )}
     >
-      <div className="flex items-baseline justify-between gap-2 border-b border-[var(--border-subtle)] px-2.5 py-1.5">
+      <div className="flex items-baseline justify-between gap-2 border-b border-[var(--border-subtle)] rounded-t-md px-2.5 py-1.5">
         <span className="truncate text-xs font-semibold">{tableName}</span>
         {alias && alias !== tableName ? (
           <span className="truncate text-[10px] text-[var(--muted)]">
@@ -43,22 +47,20 @@ export const TableNode = memo(function TableNode({
         ) : null}
       </div>
 
-      <div>
+      <div className="rounded-b-md">
         {columns.map((col) => {
           const isPk = pkSet.has(col.name);
           return (
             <div
               key={col.name}
-              className={cn(
-                "relative flex h-7 items-center gap-1.5 border-b border-[var(--border-subtle)] px-2.5 last:border-b-0",
-                col.selected && "bg-[var(--panel-raised)]",
-              )}
+              className="group relative flex h-7 items-center gap-1.5 border-b border-[var(--border-subtle)] px-2.5 last:border-b-0"
             >
               <Handle
                 type="source"
                 position={Position.Left}
                 id={`${id}-source-${col.name}`}
-                style={{ background: "var(--accent)" }}
+                isConnectable
+                style={handleStyle}
               />
 
               <input
@@ -89,7 +91,8 @@ export const TableNode = memo(function TableNode({
                 type="target"
                 position={Position.Right}
                 id={`${id}-target-${col.name}`}
-                style={{ background: "var(--accent)" }}
+                isConnectable
+                style={handleStyle}
               />
             </div>
           );

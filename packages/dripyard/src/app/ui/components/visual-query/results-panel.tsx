@@ -1,4 +1,5 @@
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Expand, Loader2 } from "lucide-react";
+import { useState } from "react";
 import {
   Table,
   TableBody,
@@ -21,22 +22,30 @@ export interface ResultsPanelProps {
 }
 
 export function ResultsPanel({ result, error, loading }: ResultsPanelProps) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
-    <div className="flex flex-col h-full min-h-0 border border-[var(--border-muted)] rounded bg-[var(--panel)]/40">
-      <div className="flex flex-1 min-h-0 flex-col">
-        {loading ? (
-          <RunningState />
-        ) : error ? (
-          <ErrorState error={error} />
-        ) : !result ? (
-          <EmptyState />
-        ) : result.rows.length === 0 ? (
-          <NoRowsState result={result} />
-        ) : (
-          <ResultTable result={result} />
-        )}
+    <>
+      <div className="flex flex-col h-full min-h-0 border border-[var(--border-muted)] rounded bg-[var(--panel)]/40">
+        <div className="flex flex-1 min-h-0 flex-col">
+          {loading ? (
+            <RunningState />
+          ) : error ? (
+            <ErrorState error={error} />
+          ) : !result ? (
+            <EmptyState />
+          ) : result.rows.length === 0 ? (
+            <NoRowsState result={result} />
+          ) : (
+            <ResultTable result={result} onExpand={() => setExpanded(true)} />
+          )}
+        </div>
       </div>
-    </div>
+
+      {expanded && result && (
+        <FullScreenResults result={result} onClose={() => setExpanded(false)} />
+      )}
+    </>
   );
 }
 
@@ -85,8 +94,10 @@ function NoRowsState({
 
 function ResultTable({
   result,
+  onExpand,
 }: {
   result: NonNullable<ResultsPanelProps["result"]>;
+  onExpand: () => void;
 }) {
   const columns = result.rows.length > 0 ? Object.keys(result.rows[0]) : [];
 
@@ -110,6 +121,15 @@ function ResultTable({
             <span className="truncate">attached: {result.attached.join(", ")}</span>
           </>
         )}
+        <button
+          type="button"
+          onClick={onExpand}
+          className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[var(--muted)] hover:text-[var(--accent)] hover:bg-[var(--panel-raised)]"
+          title="Expand results"
+        >
+          <Expand className="size-3" />
+          Expand
+        </button>
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
         <Table>
@@ -135,6 +155,73 @@ function ResultTable({
             ))}
           </TableBody>
         </Table>
+      </div>
+    </div>
+  );
+}
+
+function FullScreenResults({
+  result,
+  onClose,
+}: {
+  result: NonNullable<ResultsPanelProps["result"]>;
+  onClose: () => void;
+}) {
+  const columns = result.rows.length > 0 ? Object.keys(result.rows[0]) : [];
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex-1 min-h-0 m-4 flex flex-col rounded-md border border-[var(--border-muted)] bg-[var(--panel)] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 px-4 py-2 flex-none border-b border-[var(--border-muted)] text-xs text-[var(--muted)]">
+          <span className="font-semibold text-[var(--text)]">
+            {result.rows.length.toLocaleString()} rows
+          </span>
+          <span>·</span>
+          <span>{result.durationMs}ms</span>
+          {result.truncated && (
+            <span className="text-[var(--warning)]">
+              (truncated from {result.rowCount.toLocaleString()})
+            </span>
+          )}
+          {result.attached.length > 0 && (
+            <>
+              <span>·</span>
+              <span>attached: {result.attached.join(", ")}</span>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto rounded px-2 py-0.5 text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--panel-raised)]"
+          >
+            Close (Esc)
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <Table>
+            <TableHeader className="sticky top-0 bg-[var(--panel)] z-10">
+              <TableRow>
+                {columns.map((c) => (
+                  <TableHead key={c} className="whitespace-nowrap">{c}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {result.rows.map((r, i) => (
+                <TableRow key={i}>
+                  {columns.map((c) => (
+                    <TableCell
+                      key={c}
+                      className="text-xs font-mono tabular-nums whitespace-nowrap"
+                    >
+                      {formatCell(r[c])}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     </div>
   );

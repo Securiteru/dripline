@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Package, Search, Table2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Package, Search, Table2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,14 @@ type CatalogEntry = {
   keyColumns: Array<{ name: string; required: string }>;
 };
 
+type WarehouseTable = {
+  plugin: string;
+  table: string;
+  rawFiles: number;
+  curatedFiles: number;
+  rows: number | null;
+};
+
 export interface DragTablePayload {
   pluginName: string;
   tableName: string;
@@ -40,7 +48,6 @@ export interface DragTablePayload {
 }
 
 export interface TableSidebarProps {
-  /** Called when a table is added to the canvas (click or drop). */
   onTableDrop: (
     pluginName: string,
     tableName: string,
@@ -48,7 +55,6 @@ export interface TableSidebarProps {
   ) => void;
 }
 
-/** Coerce a raw column type string into the builder's ColumnType union. */
 function coerceColumnType(raw: string): TableColumn["type"] {
   const t = raw.toLowerCase();
   if (t.includes("char") || t.includes("text") || t.includes("string") || t.includes("uuid"))
@@ -75,8 +81,18 @@ function coerceColumnType(raw: string): TableColumn["type"] {
 export function TableSidebar({ onTableDrop }: TableSidebarProps) {
   const plugins = useSubscription<Plugin[]>("workspace.plugins") ?? [];
   const catalog = useSubscription<CatalogEntry[]>("workspace.catalog") ?? [];
+  const warehouse = useSubscription<{ tables: WarehouseTable[] }>("workspace.warehouse");
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [showAll, setShowAll] = useState(false);
+
+  const warehouseTables = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of warehouse?.tables ?? []) {
+      if (t.rawFiles > 0 || t.curatedFiles > 0) s.add(t.table);
+    }
+    return s;
+  }, [warehouse]);
 
   const columnsByPluginTable = useMemo(() => {
     const m = new Map<string, CatalogEntry>();
@@ -96,14 +112,17 @@ export function TableSidebar({ onTableDrop }: TableSidebarProps) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return plugins;
     return plugins
       .map((p) => ({
         ...p,
-        tables: p.tables.filter((t) => t.name.toLowerCase().includes(q)),
+        tables: p.tables.filter((t) => {
+          if (!showAll && !warehouseTables.has(t.name)) return false;
+          if (q && !t.name.toLowerCase().includes(q)) return false;
+          return true;
+        }),
       }))
       .filter((p) => p.tables.length > 0);
-  }, [plugins, query]);
+  }, [plugins, query, showAll, warehouseTables]);
 
   const togglePlugin = (name: string) =>
     setCollapsed((c) => ({ ...c, [name]: !c[name] }));
@@ -130,7 +149,7 @@ export function TableSidebar({ onTableDrop }: TableSidebarProps) {
 
   return (
     <aside className="flex h-full w-full flex-col bg-[var(--panel)]">
-      <div className="flex-none border-b border-[var(--border-subtle)] p-2">
+      <div className="flex-none border-b border-[var(--border-subtle)] p-2 space-y-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]" />
           <Input
@@ -140,11 +159,22 @@ export function TableSidebar({ onTableDrop }: TableSidebarProps) {
             className="h-8 pl-7 text-xs"
           />
         </div>
+        <label className="flex items-center gap-1.5 text-[10px] text-[var(--muted)] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showAll}
+            onChange={(e) => setShowAll(e.target.checked)}
+            className="size-3 accent-[var(--accent)]"
+          />
+          Show tables not in warehouse
+        </label>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
         {filtered.length === 0 ? (
-          <p className="p-3 text-xs text-[var(--muted)]">No tables found.</p>
+          <p className="p-3 text-xs text-[var(--muted)]">
+            {showAll ? "No tables found." : "No warehouse tables yet. Create a lane to sync data, or toggle 'Show tables not in warehouse'."}
+          </p>
         ) : (
           filtered.map((p) => {
             const isCollapsed = collapsed[p.name] ?? false;
@@ -174,35 +204,42 @@ export function TableSidebar({ onTableDrop }: TableSidebarProps) {
 
                 {!isCollapsed && (
                   <div className="pb-1">
-                    {p.tables.map((t) => (
-                      <div
-                        key={t.name}
-                        draggable
-                        onDragStart={(e) => onDragStart(e, p.name, t)}
-                        onClick={() => addTable(p.name, t)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            addTable(p.name, t);
-                          }
-                        }}
-                        className="group flex cursor-grab items-center gap-1.5 py-1 pl-7 pr-2 hover:bg-[var(--panel-raised)] active:cursor-grabbing"
-                        title={t.description ?? `Add ${t.name} to canvas`}
-                      >
-                        <Table2 className="size-3.5 flex-none text-[var(--muted)] group-hover:text-[var(--text)]" />
-                        <code className="truncate text-[11px] text-[var(--text)]">
-                          {t.name}
-                        </code>
-                        <Badge
-                          variant="outline"
-                          className="ml-auto flex-none text-[10px] text-[var(--muted)]"
+                    {p.tables.map((t) => {
+                      const ready = warehouseTables.has(t.name);
+                      return (
+                        <div
+                          key={t.name}
+                          draggable
+                          onDragStart={(e) => onDragStart(e, p.name, t)}
+                          onClick={() => addTable(p.name, t)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              addTable(p.name, t);
+                            }
+                          }}
+                          className={`group flex items-center gap-1.5 py-1 pl-7 pr-2 hover:bg-[var(--panel-raised)] ${!ready ? "opacity-40" : ""}`}
+                          title={ready ? `Click or drag ${t.name} to canvas` : `${t.name} — not synced to warehouse yet`}
                         >
-                          {t.columnCount}
-                        </Badge>
-                      </div>
-                    ))}
+                          {ready ? (
+                            <CheckCircle2 className="size-3 flex-none text-[var(--ok)]" />
+                          ) : (
+                            <Table2 className="size-3 flex-none text-[var(--muted)]" />
+                          )}
+                          <code className="truncate text-[11px] text-[var(--text)]">
+                            {t.name}
+                          </code>
+                          <Badge
+                            variant="outline"
+                            className="ml-auto flex-none text-[10px] text-[var(--muted)]"
+                          >
+                            {t.columnCount}
+                          </Badge>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
