@@ -9,6 +9,7 @@ import { ProxiesPage } from "./components/pages/proxies";
 import { QueryPage } from "./components/pages/query";
 import { RunDetailPage } from "./components/pages/run-detail";
 import { RunsPage } from "./components/pages/runs";
+import { VisualQueryPage } from "./components/pages/visual-query";
 import { WarehousePage } from "./components/pages/warehouse";
 import { WorkersPage } from "./components/pages/workers";
 import {
@@ -45,6 +46,7 @@ export function App() {
               <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/warehouse" element={<WarehousePage />} />
               <Route path="/query" element={<QueryPage />} />
+              <Route path="/visual-query" element={<VisualQueryPage />} />
             </Routes>
           </div>
         </SidebarInset>

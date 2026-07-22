@@ -9,6 +9,7 @@ import {
   Package,
   Server,
   Terminal,
+  Workflow,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -32,7 +33,8 @@ type SidebarPage =
   | "connections"
   | "catalog"
   | "warehouse"
-  | "query";
+  | "query"
+  | "visual-query";
 
 const NAV_ITEMS: Array<{
   page: SidebarPage;
@@ -55,6 +57,12 @@ const NAV_ITEMS: Array<{
   },
   { page: "query", path: "/query", label: "Query", icon: Terminal },
   {
+    page: "visual-query",
+    path: "/visual-query",
+    label: "Visual Query",
+    icon: Workflow,
+  },
+  {
     page: "connections",
     path: "/connections",
     label: "Connections",
@@ -75,6 +83,7 @@ function pageFromPath(pathname: string): SidebarPage {
     "catalog",
     "warehouse",
     "query",
+    "visual-query",
   ];
   return valid.includes(seg as SidebarPage) ? (seg as SidebarPage) : "overview";
 }
